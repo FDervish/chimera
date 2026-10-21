@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
+#include <utility>
+#include <vector>
+
 #include "../../halo_data/particle.hpp"
 
 #include "particle.hpp"
@@ -10,12 +13,9 @@ namespace Chimera {
         Point3D position;
     };
 
-    #define PARTICLE_BUFFER_SIZE 1024
-    static InterpolatedParticle particle_buffers[2][PARTICLE_BUFFER_SIZE] = {};
-
-    // These are pointers to each buffer. These swap every tick.
-    static auto *current_tick = particle_buffers[0];
-    static auto *previous_tick = particle_buffers[1];
+    // These swap every tick. They grow to fit the particle table, which mods can extend past 1024.
+    static std::vector<InterpolatedParticle> current_tick;
+    static std::vector<InterpolatedParticle> previous_tick;
 
     // If true, a tick has passed and it's time to re-copy the particle data.
     static bool tick_passed = false;
@@ -24,17 +24,14 @@ namespace Chimera {
         auto &particle_table = ParticleTable::get_particle_table();
         if(tick_passed) {
             // Swap buffers.
-            if(current_tick == particle_buffers[0]) {
-                current_tick = particle_buffers[1];
-                previous_tick = particle_buffers[0];
-            }
-            else {
-                current_tick = particle_buffers[0];
-                previous_tick = particle_buffers[1];
+            std::swap(current_tick, previous_tick);
+            if(current_tick.size() < particle_table.max_elements) {
+                current_tick.resize(particle_table.max_elements);
+                previous_tick.resize(particle_table.max_elements);
             }
 
             // Go through each particle, determining if any can be interpolated.
-            for(std::size_t i = 0; i < PARTICLE_BUFFER_SIZE; i++) {
+            for(std::size_t i = 0, buffer_size = current_tick.size(); i < buffer_size; i++) {
                 auto *particle = particle_table.get_element(i);
                 auto &current_tick_particle = current_tick[i];
                 current_tick_particle.interpolate = false;
@@ -54,7 +51,7 @@ namespace Chimera {
         }
 
         // Iterate through each particle
-        for(std::size_t i = 0; i < particle_table.current_size && i < PARTICLE_BUFFER_SIZE; i++) {
+        for(std::size_t i = 0, buffer_size = current_tick.size(); i < particle_table.current_size && i < buffer_size; i++) {
             auto *particle = particle_table.first_element + i;
             auto &current_tick_particle = current_tick[i];
             auto &previous_tick_particle = previous_tick[i];
@@ -69,7 +66,7 @@ namespace Chimera {
 
     void interpolate_particle_after() noexcept {
         auto &particle_table = ParticleTable::get_particle_table();
-        for(std::size_t i = 0; i < particle_table.current_size && i < PARTICLE_BUFFER_SIZE; i++) {
+        for(std::size_t i = 0, buffer_size = current_tick.size(); i < particle_table.current_size && i < buffer_size; i++) {
             auto *particle = particle_table.get_element(i);
             auto &current_tick_particle = current_tick[i];
             auto &previous_tick_particle = previous_tick[i];
@@ -82,7 +79,7 @@ namespace Chimera {
     }
 
     void interpolate_particle_clear() noexcept {
-        for(std::size_t i = 0; i < PARTICLE_BUFFER_SIZE; i++) {
+        for(std::size_t i = 0, buffer_size = current_tick.size(); i < buffer_size; i++) {
             current_tick[i].interpolate = false;
             previous_tick[i].interpolate = false;
         }
